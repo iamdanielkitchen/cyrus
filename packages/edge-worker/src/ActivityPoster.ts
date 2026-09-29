@@ -5,6 +5,7 @@ import type {
 	RepoSetupHookEvent,
 	RepositoryConfig,
 } from "cyrus-core";
+import { selectSystemPromptForRepository } from "./prompts/systemPromptSelection.js";
 
 export class ActivityPoster {
 	private issueTrackers: Map<string, IIssueTrackerService>;
@@ -267,69 +268,13 @@ export class ActivityPoster {
 			return;
 		}
 
-		// Determine which prompt type was selected and which label triggered it
-		let selectedPromptType: string | null = null;
-		let triggerLabel: string | null = null;
-		const repository = Array.from(this.repositories.values()).find(
-			(r) => r.id === repositoryId,
-		);
-
-		if (repository?.labelPrompts) {
-			// Check debugger labels
-			const debuggerConfig = repository.labelPrompts.debugger;
-			const debuggerLabels = Array.isArray(debuggerConfig)
-				? debuggerConfig
-				: debuggerConfig?.labels;
-			const debuggerLabel = debuggerLabels?.find((label) =>
-				labels.includes(label),
-			);
-			if (debuggerLabel) {
-				selectedPromptType = "debugger";
-				triggerLabel = debuggerLabel;
-			} else {
-				// Check builder labels
-				const builderConfig = repository.labelPrompts.builder;
-				const builderLabels = Array.isArray(builderConfig)
-					? builderConfig
-					: builderConfig?.labels;
-				const builderLabel = builderLabels?.find((label) =>
-					labels.includes(label),
-				);
-				if (builderLabel) {
-					selectedPromptType = "builder";
-					triggerLabel = builderLabel;
-				} else {
-					// Check scoper labels
-					const scoperConfig = repository.labelPrompts.scoper;
-					const scoperLabels = Array.isArray(scoperConfig)
-						? scoperConfig
-						: scoperConfig?.labels;
-					const scoperLabel = scoperLabels?.find((label) =>
-						labels.includes(label),
-					);
-					if (scoperLabel) {
-						selectedPromptType = "scoper";
-						triggerLabel = scoperLabel;
-					} else {
-						// Check orchestrator labels
-						const orchestratorConfig = repository.labelPrompts.orchestrator;
-						const orchestratorLabels = Array.isArray(orchestratorConfig)
-							? orchestratorConfig
-							: (orchestratorConfig?.labels ?? ["orchestrator"]);
-						const orchestratorLabel = orchestratorLabels?.find((label) =>
-							labels.includes(label),
-						);
-						if (orchestratorLabel) {
-							selectedPromptType = "orchestrator";
-							triggerLabel = orchestratorLabel;
-						}
-					}
-				}
-			}
+		const repository = this.repositories.get(repositoryId);
+		if (!repository) {
+			return;
 		}
 
-		// Only post if a role was actually triggered
-		if (!selectedPromptType || !triggerLabel) {
+		const selection = selectSystemPromptForRepository(repository, labels);
+		if (!selection) {
 			return;
 		}
 
@@ -339,7 +284,7 @@ export class ActivityPoster {
 				agentSessionId: sessionId,
 				content: {
 					type: "thought",
-					body: `Entering '${selectedPromptType}' mode because of the '${triggerLabel}' label. I'll follow the ${selectedPromptType} process...`,
+					body: `Entering '${selection.type}' mode because of the '${selection.triggerLabel}' label. I'll follow the ${selection.type} process...`,
 				},
 			},
 			"system prompt selection",

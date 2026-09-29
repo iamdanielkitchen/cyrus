@@ -59,7 +59,9 @@ export type { AllowedToolsPlatform } from "./allowed-tools-defaults.js";
 export {
 	GITHUB_DEFAULT_ALLOWED_TOOLS,
 	getDefaultAllowedTools,
+	isCyrusDocsMcpDisabled,
 	LINEAR_DEFAULT_ALLOWED_TOOLS,
+	omitCyrusDocsAllowedTool,
 	SLACK_DEFAULT_ALLOWED_TOOLS,
 } from "./allowed-tools-defaults.js";
 export type {
@@ -194,6 +196,7 @@ export {
 	isIssueNewCommentWebhook,
 	isIssueStateChangeWebhook,
 	isIssueStateIdUpdateWebhook,
+	isIssueSubscribedWebhook,
 	isIssueTitleOrDescriptionUpdateWebhook,
 	isIssueUnassignedEvent,
 	isIssueUnassignedWebhook,
@@ -214,6 +217,7 @@ export type {
 	InternalMessage,
 	InternalMessageBase,
 	IssueStateChangeMessage,
+	IssueStateChangeTrigger,
 	LinearContentUpdatePlatformData,
 	LinearIssueStateChangePlatformData,
 	LinearPlatformRef,

@@ -71,12 +71,14 @@ import {
 	isIssueStateChangeMessage,
 	isIssueStateChangeWebhook,
 	isIssueStateIdUpdateWebhook,
+	isIssueSubscribedWebhook,
 	isIssueTitleOrDescriptionUpdateWebhook,
 	isIssueUnassignedWebhook,
 	isSessionStartMessage,
 	isStopSignalMessage,
 	isUnassignMessage,
 	isUserPromptMessage,
+	omitCyrusDocsAllowedTool,
 	PersistenceManager,
 	requireLinearWorkspaceId,
 	resolvePath,
@@ -1140,6 +1142,7 @@ export class EdgeWorker extends EventEmitter {
 			},
 			getPlatformMcpConfigOverrides,
 			getStrictMcpConfig: () => this.config.strictMcpConfig,
+			isFailureModeToolEnabled: () => this.getFailureModesClient() != null,
 			ensureLinearTokenFresh: (linearWorkspaceId) =>
 				this.ensureLinearTokenFresh(linearWorkspaceId),
 			resolveSkillsConfig: async ({ repository, repositoryPaths }) => {
@@ -3453,6 +3456,10 @@ ${taskSection}`;
 			// NOTE: Traditional webhooks (assigned, comment) are disabled in favor of agent session events
 			if (isIssueAssignedWebhook(webhook)) {
 				return;
+			} else if (isIssueSubscribedWebhook(webhook)) {
+				// Delivered with AgentSessionEvent/created on delegate. Session start is created only.
+				this.logger.info("Ignoring webhook action issueSubscribed");
+				return;
 			} else if (isIssueCommentMentionWebhook(webhook)) {
 				return;
 			} else if (isIssueNewCommentWebhook(webhook)) {
@@ -3643,10 +3650,56 @@ ${taskSection}`;
 	}
 
 	/**
-	 * Handle issue state change message (terminal state reached).
-	 * Stops active sessions and deletes worktrees for the issue.
+	 * Handle an issue state change message.
+	 *
+	 * Deletion runs session stop and worktree removal immediately.
+	 * A status notification does not: that cleanup runs only when the issue's
+	 * current workflow state type is exactly "completed" or "canceled".
 	 */
 	private async handleIssueStateChangeMessage(
+		message: IssueStateChangeMessage,
+	): Promise<void> {
+		if (message.trigger === "deletion") {
+			await this.runTerminalIssueCleanup(message);
+			return;
+		}
+
+		const issueTracker = this.issueTrackers.get(message.organizationId);
+		if (!issueTracker) {
+			this.logger.info(
+				`[MessageBus] Leaving worktree in place for ${message.workItemIdentifier}: no issue tracker for workspace ${message.organizationId}`,
+			);
+			return;
+		}
+
+		let type: string | undefined;
+		try {
+			const issue = await issueTracker.fetchIssue(message.workItemId);
+			const state = await issue.state;
+			type = state?.type;
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			this.logger.info(
+				`[MessageBus] Leaving worktree in place for ${message.workItemIdentifier}: failed to read issue state: ${detail}`,
+			);
+			return;
+		}
+
+		if (type === "completed" || type === "canceled") {
+			await this.runTerminalIssueCleanup(message);
+			return;
+		}
+
+		this.logger.info(
+			`[MessageBus] Leaving worktree in place for ${message.workItemIdentifier}: state type ${type ?? "missing"}`,
+		);
+	}
+
+	/**
+	 * Stop sessions for an issue and delete its worktrees.
+	 * Called only after a deletion trigger or a confirmed terminal state type.
+	 */
+	private async runTerminalIssueCleanup(
 		message: IssueStateChangeMessage,
 	): Promise<void> {
 		this.logger.info(
@@ -6888,6 +6941,7 @@ ${input.userComment}
 			repository,
 			sessionId,
 			systemPrompt,
+			failureModeToolEnabled: this.getFailureModesClient() != null,
 			allowedTools,
 			allowedDirectories,
 			disallowedTools,
@@ -7244,7 +7298,9 @@ ${input.userComment}
 					// Build allowed/disallowed tools — same as what buildAgentRunnerConfig() uses.
 					// Without these, startup() inherits the user's defaultMode ("default"),
 					// which causes macOS permission prompts for file writes.
-					const allowedTools = this.buildAllowedTools(repo);
+					const allowedTools = omitCyrusDocsAllowedTool(
+						this.buildAllowedTools(repo),
+					);
 					const disallowedTools = this.buildDisallowedTools(repo);
 
 					const warm = await startup({

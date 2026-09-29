@@ -16,6 +16,20 @@ const AUTH_ENV_KEYS = [
 ] as const;
 
 /**
+ * Parent-process secrets removed from the returned session env after assembly.
+ * Stripped last so neither `process.env` nor `extra` can reintroduce them.
+ * `process.env` itself is not mutated.
+ */
+const SESSION_ENV_DENYLIST = [
+	"LINEAR_WEBHOOK_SECRET",
+	"LINEAR_CLIENT_SECRET",
+	"LINEAR_CLIENT_ID",
+	"CYRUS_API_KEY",
+	"CYRUS_TEAM_ID",
+	"CLOUDFLARE_TOKEN",
+] as const;
+
+/**
  * Cyrus-specific env vars injected into every Claude Code subprocess.
  * Both `ClaudeRunner.start()` and `EdgeWorker.warmupRecentSessions()`
  * must use the same set — keep this as the single source of truth.
@@ -38,12 +52,16 @@ export const CYRUS_SESSION_ENV = {
 /**
  * Build the base `env` object for a Claude SDK session.
  *
- * Overlays the full parent `process.env` so HOME (and other inherited vars) are
- * available to tools that depend on them — GPG-signed commits, `gh` CLI auth,
- * etc. claude-agent-sdk v0.2.113 reverted to no longer overlaying process.env
- * itself, so we must do it here. Then applies the shared Cyrus session flags
- * on top. Callers can spread additional vars on top (e.g., repository .env
- * for live runs).
+ * Copies the parent `process.env` so HOME, PATH, `GIT_AUTHOR_*`,
+ * `GIT_COMMITTER_*`, and other inherited vars stay available to tools that
+ * depend on them — GPG-signed commits, `gh` CLI auth, etc. claude-agent-sdk
+ * v0.2.113 reverted to no longer overlaying process.env itself, so we must
+ * do it here. PATH and auth credentials are forwarded explicitly, then the
+ * shared Cyrus session flags are applied. Callers can spread additional vars
+ * on top (e.g., repository .env for live runs).
+ *
+ * Secrets in {@link SESSION_ENV_DENYLIST} are deleted from the returned object
+ * after assembly. The parent `process.env` is not mutated.
  */
 export function buildBaseSessionEnv(
 	extra?: Record<string, string>,
@@ -65,11 +83,17 @@ export function buildBaseSessionEnv(
 		}
 	}
 
-	return {
+	const sessionEnv: Record<string, string> = {
 		...env,
 		...CYRUS_SESSION_ENV,
 		...extra,
 	};
+
+	for (const key of SESSION_ENV_DENYLIST) {
+		delete sessionEnv[key];
+	}
+
+	return sessionEnv;
 }
 
 /**

@@ -15,6 +15,7 @@ import type {
 	GuidanceItem,
 	IMessageTranslator,
 	IssueStateChangeMessage,
+	IssueStateChangeTrigger,
 	LinearContentUpdatePlatformData,
 	LinearIssueStateChangePlatformData,
 	LinearPlatformRef,
@@ -366,10 +367,12 @@ export class LinearMessageTranslator
 	}
 
 	/**
-	 * Translate IssueStateChangeWebhook (AppUserNotification/issueStatusChanged) to IssueStateChangeMessage.
+	 * Translate IssueStateChangeWebhook (AppUserNotification/issueStatusChanged)
+	 * to IssueStateChangeMessage.
 	 *
-	 * Linear sends these notifications for terminal state changes (completed/canceled).
-	 * The notification payload does not include state info — only the issue reference.
+	 * The notification payload does not include state info — only the issue
+	 * reference — and does not mean the issue is terminal. Tagged
+	 * `status_notification`.
 	 */
 	private translateIssueStateChange(
 		webhook: IssueStateChangeWebhook,
@@ -385,14 +388,18 @@ export class LinearMessageTranslator
 			};
 		}
 
-		return this.buildTerminalStateMessage(issue, organizationId, createdAt);
+		return this.buildTerminalStateMessage(
+			issue,
+			organizationId,
+			createdAt,
+			"status_notification",
+		);
 	}
 
 	/**
 	 * Translate IssueDeletedWebhook (Issue/remove) to IssueStateChangeMessage.
 	 *
-	 * A deleted issue is effectively terminal — the same cleanup
-	 * (stop sessions, delete worktrees) should occur.
+	 * Tagged `deletion`. Does not read a workflow state off the webhook.
 	 */
 	private translateIssueDeleted(
 		webhook: IssueDeletedWebhook,
@@ -407,17 +414,23 @@ export class LinearMessageTranslator
 			};
 		}
 
-		return this.buildTerminalStateMessage(issueData, organizationId, createdAt);
+		return this.buildTerminalStateMessage(
+			issueData,
+			organizationId,
+			createdAt,
+			"deletion",
+		);
 	}
 
 	/**
-	 * Build an IssueStateChangeMessage for an issue that has reached a terminal state.
-	 * Shared by state change (completed/canceled) and deletion translations.
+	 * Build an IssueStateChangeMessage for a status notification or a deletion.
+	 * Does not read a workflow state. `isTerminal` stays true.
 	 */
 	private buildTerminalStateMessage(
 		issueData: WebhookIssue,
 		organizationId: string,
 		createdAt: Date | string | undefined,
+		trigger: IssueStateChangeTrigger,
 	): TranslationResult {
 		const platformData: LinearIssueStateChangePlatformData = {
 			issue: this.buildIssueRef(issueData as SafeRecord),
@@ -433,6 +446,7 @@ export class LinearMessageTranslator
 			workItemId: issueData.id,
 			workItemIdentifier: issueData.identifier,
 			isTerminal: true,
+			trigger,
 			platformData,
 		};
 

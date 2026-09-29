@@ -1,6 +1,10 @@
 import type { LinearClient } from "@linear/sdk";
 import type { McpServerConfig } from "cyrus-claude-runner";
-import type { IIssueTrackerService, RepositoryConfig } from "cyrus-core";
+import {
+	type IIssueTrackerService,
+	isCyrusDocsMcpDisabled,
+	type RepositoryConfig,
+} from "cyrus-core";
 import {
 	type CyrusToolsOptions,
 	createCyrusToolsServer,
@@ -70,6 +74,15 @@ export class McpConfigService {
 		parentSessionId?: string,
 	): Record<string, McpServerConfig> {
 		const contextId = this.buildContextId(repoId, parentSessionId);
+		const cyrusDocsDisabled = isCyrusDocsMcpDisabled();
+		const cyrusDocsMcp: Record<string, McpServerConfig> = cyrusDocsDisabled
+			? {}
+			: {
+					"cyrus-docs": {
+						type: "http",
+						url: "https://atcyrus.com/docs/mcp",
+					},
+				};
 
 		// Prebuild one SDK server for this context so callback wiring remains deterministic.
 		const linearToken = this.deps.getLinearTokenForWorkspace(linearWorkspaceId);
@@ -77,10 +90,7 @@ export class McpConfigService {
 		if (!linearToken || !issueTracker?.getClient) {
 			// CLI platform mode — no Linear client available, return config without cyrus-tools
 			const mcpConfig: Record<string, McpServerConfig> = {
-				"cyrus-docs": {
-					type: "http",
-					url: "https://atcyrus.com/docs/mcp",
-				},
+				...cyrusDocsMcp,
 			};
 			return mcpConfig;
 		}
@@ -124,10 +134,7 @@ export class McpConfigService {
 						: {}),
 				},
 			},
-			"cyrus-docs": {
-				type: "http",
-				url: "https://atcyrus.com/docs/mcp",
-			},
+			...cyrusDocsMcp,
 		};
 
 		// Inject the Slack MCP server whenever SLACK_BOT_TOKEN is available —

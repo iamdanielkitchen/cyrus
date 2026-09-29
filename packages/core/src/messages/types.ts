@@ -29,7 +29,7 @@ export type MessageAction =
 	| "stop_signal" // Stop processing request
 	| "content_update" // Issue/PR content changed
 	| "unassign" // Task unassigned from agent
-	| "issue_state_change"; // Issue state changed (completed, canceled)
+	| "issue_state_change"; // Status notification or deletion; not proof of a terminal state
 
 /**
  * Platform source identifier.
@@ -370,16 +370,28 @@ export interface LinearIssueStateChangePlatformData {
 }
 
 /**
- * Issue state change message - issue transitioned to a terminal state.
- * Triggered by: User moves issue to Done/Cancelled in Linear.
+ * Why an {@link IssueStateChangeMessage} was produced.
  *
- * Note: Linear's issueStatusChanged notification does not include the specific
- * state type (completed vs canceled), only that the issue reached a terminal state.
+ * `status_notification` is Linear's issueStatusChanged notification. That
+ * payload has no workflow state and is not itself a terminal transition.
+ * `deletion` means the issue was removed.
+ */
+export type IssueStateChangeTrigger = "status_notification" | "deletion";
+
+/**
+ * Issue state change message.
+ * Triggered by a Linear status notification or by issue deletion.
+ *
+ * A status notification does not mean the issue reached a terminal state.
+ * The payload omits the workflow state type; callers must read the issue
+ * before treating it as completed or canceled. Deletion uses `trigger: "deletion"`.
  */
 export interface IssueStateChangeMessage extends InternalMessageBase {
 	action: "issue_state_change";
-	/** Whether the issue reached a terminal state (always true for this message type) */
+	/** Always true for this message. Not proof the workflow state is terminal. */
 	isTerminal: true;
+	/** Status notification versus deletion. */
+	trigger: IssueStateChangeTrigger;
 	/** Platform-specific data */
 	platformData: LinearIssueStateChangePlatformData;
 }

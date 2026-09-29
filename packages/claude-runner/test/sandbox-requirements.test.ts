@@ -248,8 +248,15 @@ describe("sandbox-requirements", () => {
 			expect(mockLogger.warn.mock.calls[0]?.[0]).toContain(
 				"Linux sandbox requirements are not met",
 			);
-			expect(mockLogger.warn.mock.calls[0]?.[0]).toContain(
+			expect(mockLogger.warn.mock.calls[0]?.[0]).not.toContain(
 				"skipping CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+			);
+			expect(mockLogger.warn.mock.calls[1]?.[0]).toContain("CYPACK-1108");
+			expect(mockLogger.warn.mock.calls[1]?.[0]).toContain(
+				"not because a sandbox package is missing",
+			);
+			expect(mockLogger.warn.mock.calls[1]?.[0]).not.toContain(
+				"until these are resolved",
 			);
 			expect(mockLogger.warn.mock.calls[2]?.[0]).toContain("[socat]");
 			expect(mockLogger.warn.mock.calls[2]?.[0]).toContain("Install socat.");
@@ -268,9 +275,11 @@ describe("sandbox-requirements", () => {
 				],
 			};
 			logSandboxRequirementFailures(result, mockLogger as any);
+			expect(mockLogger.warn).toHaveBeenCalledTimes(3);
+
 			logSandboxRequirementFailures(result, mockLogger as any);
 
-			// Only the first call should have emitted warnings
+			// The second call with the same failure logs nothing
 			expect(mockLogger.warn).toHaveBeenCalledTimes(3);
 		});
 	});

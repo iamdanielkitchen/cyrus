@@ -42,9 +42,11 @@ let hasLoggedFailures = false;
  * If the host is missing `socat`, `bubblewrap`, or cannot create an
  * unprivileged user namespace, those tool invocations will fail at runtime.
  *
- * This check returns a structured result so the caller can decide whether to
- * set the env var, and prints resolution guidance to stdout on the first
- * failed check so users running locally can self-diagnose.
+ * This check returns a structured result for diagnostics only. The caller
+ * does not use it to decide whether to set the env var.
+ * `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` stays unset because of CYPACK-1108
+ * whether or not the check passes. Resolution guidance is logged on the
+ * first failed check so users running locally can self-diagnose.
  *
  * The result is cached per process; tests can use
  * {@link resetSandboxRequirementsCacheForTesting} to reset it.
@@ -113,8 +115,9 @@ export function checkLinuxSandboxRequirements(): SandboxRequirementsResult {
 
 /**
  * Log requirement failures as WARN-level messages via the dedicated logger.
- * The warnings are emitted at most once per process; subsequent calls are
- * no-ops regardless of which logger instance is passed.
+ * A supported result returns without logging. Failures are emitted at most
+ * once per process; subsequent calls are no-ops regardless of which logger
+ * instance is passed.
  */
 export function logSandboxRequirementFailures(
 	result: SandboxRequirementsResult,
@@ -125,11 +128,9 @@ export function logSandboxRequirementFailures(
 	}
 	hasLoggedFailures = true;
 
+	logger.warn("Linux sandbox requirements are not met.");
 	logger.warn(
-		"Linux sandbox requirements are not met — skipping CLAUDE_CODE_SUBPROCESS_ENV_SCRUB.",
-	);
-	logger.warn(
-		"Claude sessions will continue, but subprocess env scrubbing will be disabled until these are resolved:",
+		"Claude sessions will continue. CLAUDE_CODE_SUBPROCESS_ENV_SCRUB stays unset because of CYPACK-1108, not because a sandbox package is missing:",
 	);
 
 	for (const failure of result.failures) {

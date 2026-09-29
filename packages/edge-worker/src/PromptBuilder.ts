@@ -15,6 +15,10 @@ import {
 	type WebhookComment,
 } from "cyrus-core";
 import type { GitService } from "./GitService.js";
+import {
+	type SystemPromptSelection,
+	selectSystemPromptForRepository,
+} from "./prompts/systemPromptSelection.js";
 
 /**
  * Dependencies required by the PromptBuilder
@@ -32,12 +36,7 @@ export interface PromptBuilderDeps {
 export interface SystemPromptResult {
 	prompt: string;
 	version?: string;
-	type?:
-		| "debugger"
-		| "builder"
-		| "scoper"
-		| "orchestrator"
-		| "graphite-orchestrator";
+	type?: SystemPromptSelection["type"];
 }
 
 /**
@@ -87,53 +86,25 @@ export class PromptBuilder {
 			return undefined;
 		}
 
-		const lowercaseLabels = labels.map((label) => label.toLowerCase());
-
-		// HARDCODED RULE: Always check for 'orchestrator' label (case-insensitive)
-		// regardless of whether any repository.labelPrompts is configured.
-		const hasHardcodedOrchestratorLabel =
-			lowercaseLabels.includes("orchestrator");
-
 		// Check if ANY repo has labelPrompts configured
 		const anyRepoHasLabelPrompts = repositories.some(
 			(repo) => repo.labelPrompts,
 		);
 
-		// If no repos have labelPrompts but has hardcoded orchestrator label,
-		// load orchestrator system prompt directly
-		if (!anyRepoHasLabelPrompts && hasHardcodedOrchestratorLabel) {
-			try {
-				const __filename = fileURLToPath(import.meta.url);
-				const __dirname = dirname(__filename);
-				const promptPath = join(__dirname, "..", "prompts", "orchestrator.md");
-				const promptContent = await readFile(promptPath, "utf-8");
-				this.logger.debug(
-					`Using orchestrator system prompt (hardcoded rule) for labels: ${labels.join(", ")}`,
-				);
-
-				const promptVersion = this.extractVersionTag(promptContent);
-				if (promptVersion) {
-					this.logger.debug(
-						`orchestrator system prompt version: ${promptVersion}`,
-					);
-				}
-
-				return {
-					prompt: promptContent,
-					version: promptVersion,
-					type: "orchestrator",
-				};
-			} catch (error) {
-				this.logger.error(
-					`Failed to load orchestrator prompt template:`,
-					error,
-				);
+		// No-config orchestrator is returned only from this branch, including
+		// an empty repository list (repositories[0] is undefined).
+		if (!anyRepoHasLabelPrompts) {
+			const selection = selectSystemPromptForRepository(
+				repositories[0],
+				labels,
+			);
+			if (!selection) {
 				return undefined;
 			}
-		}
-
-		if (!anyRepoHasLabelPrompts) {
-			return undefined;
+			return this.loadSystemPromptFile(
+				selection.type,
+				`Using ${selection.type} system prompt (hardcoded rule) for labels: ${labels.join(", ")}`,
+			);
 		}
 
 		// Iterate repos in array order — first match wins, log conflicts
@@ -141,15 +112,15 @@ export class PromptBuilder {
 		let winningRepoName: string | undefined;
 
 		for (const repository of repositories) {
+			// A repo without labelPrompts must not take orchestrator ahead of a
+			// later configured repo.
 			if (!repository.labelPrompts) {
 				continue;
 			}
 
 			const matchResult = await this.matchSystemPromptForRepo(
-				lowercaseLabels,
 				labels,
 				repository,
-				hasHardcodedOrchestratorLabel,
 			);
 
 			if (!matchResult) {
@@ -172,135 +143,84 @@ export class PromptBuilder {
 	}
 
 	/**
-	 * Match system prompt for a single repository's labelPrompts config.
-	 * Internal helper used by determineSystemPromptFromLabels.
+	 * Load the system prompt selected for a single repository's labelPrompts.
+	 * Repos without labelPrompts do not match here.
 	 */
 	private async matchSystemPromptForRepo(
-		lowercaseLabels: string[],
 		labels: string[],
 		repository: RepositoryConfig,
-		hasHardcodedOrchestratorLabel: boolean,
 	): Promise<SystemPromptResult | undefined> {
 		if (!repository.labelPrompts) {
 			return undefined;
 		}
 
-		// Check for graphite-orchestrator first (requires BOTH graphite AND orchestrator labels)
-		const graphiteConfig = repository.labelPrompts.graphite;
-		const graphiteLabels = Array.isArray(graphiteConfig)
-			? graphiteConfig
-			: (graphiteConfig?.labels ?? ["graphite"]);
-		const hasGraphiteLabel = graphiteLabels?.some((label: string) =>
-			lowercaseLabels.includes(label.toLowerCase()),
+		const selection = selectSystemPromptForRepository(repository, labels);
+		if (!selection) {
+			return undefined;
+		}
+
+		const loaded = await this.loadSystemPromptFile(
+			selection.type,
+			`Using ${selection.type} system prompt from repo '${repository.name}' for labels: ${labels.join(", ")}`,
 		);
+		if (loaded || selection.type !== "graphite-orchestrator") {
+			return loaded;
+		}
 
-		const orchestratorConfig = repository.labelPrompts.orchestrator;
-		const orchestratorLabels = Array.isArray(orchestratorConfig)
-			? orchestratorConfig
-			: (orchestratorConfig?.labels ?? ["orchestrator"]);
-		const hasOrchestratorLabel =
-			hasHardcodedOrchestratorLabel ||
-			orchestratorLabels?.some((label: string) =>
-				lowercaseLabels.includes(label.toLowerCase()),
-			);
+		// graphite-orchestrator.md failed. Select again with graphite labels
+		// forced to [] so the absent-key ["graphite"] default cannot re-fire.
+		// A second read failure is terminal — do not try another type.
+		const retrySelection = selectSystemPromptForRepository(
+			{
+				...repository,
+				labelPrompts: {
+					...repository.labelPrompts,
+					graphite: [],
+				},
+			},
+			labels,
+		);
+		if (!retrySelection) {
+			return undefined;
+		}
 
-		if (hasGraphiteLabel && hasOrchestratorLabel) {
-			try {
-				const __filename = fileURLToPath(import.meta.url);
-				const __dirname = dirname(__filename);
-				const promptPath = join(
-					__dirname,
-					"..",
-					"prompts",
-					"graphite-orchestrator.md",
-				);
-				const promptContent = await readFile(promptPath, "utf-8");
+		return this.loadSystemPromptFile(
+			retrySelection.type,
+			`Using ${retrySelection.type} system prompt from repo '${repository.name}' for labels: ${labels.join(", ")}`,
+		);
+	}
+
+	/**
+	 * Read prompts/${type}.md next to this module and attach its version tag.
+	 * A read failure is logged and returned as undefined.
+	 */
+	private async loadSystemPromptFile(
+		promptType: SystemPromptSelection["type"],
+		usageLog: string,
+	): Promise<SystemPromptResult | undefined> {
+		try {
+			const __filename = fileURLToPath(import.meta.url);
+			const __dirname = dirname(__filename);
+			const promptPath = join(__dirname, "..", "prompts", `${promptType}.md`);
+			const promptContent = await readFile(promptPath, "utf-8");
+			this.logger.debug(usageLog);
+
+			const promptVersion = this.extractVersionTag(promptContent);
+			if (promptVersion) {
 				this.logger.debug(
-					`Using graphite-orchestrator system prompt from repo '${repository.name}' for labels: ${labels.join(", ")}`,
-				);
-
-				const promptVersion = this.extractVersionTag(promptContent);
-				if (promptVersion) {
-					this.logger.debug(
-						`graphite-orchestrator system prompt version: ${promptVersion}`,
-					);
-				}
-
-				return {
-					prompt: promptContent,
-					version: promptVersion,
-					type: "graphite-orchestrator",
-				};
-			} catch (error) {
-				this.logger.error(
-					`Failed to load graphite-orchestrator prompt template:`,
-					error,
+					`${promptType} system prompt version: ${promptVersion}`,
 				);
 			}
+
+			return {
+				prompt: promptContent,
+				version: promptVersion,
+				type: promptType,
+			};
+		} catch (error) {
+			this.logger.error(`Failed to load ${promptType} prompt template:`, error);
+			return undefined;
 		}
-
-		// Check each prompt type for matching labels
-		const promptTypes = [
-			"debugger",
-			"builder",
-			"scoper",
-			"orchestrator",
-		] as const;
-
-		for (const promptType of promptTypes) {
-			const promptConfig = repository.labelPrompts[promptType];
-			const configuredLabels = Array.isArray(promptConfig)
-				? promptConfig
-				: promptConfig?.labels;
-
-			const matchesLabel =
-				promptType === "orchestrator"
-					? hasHardcodedOrchestratorLabel ||
-						configuredLabels?.some((label: string) =>
-							lowercaseLabels.includes(label.toLowerCase()),
-						)
-					: configuredLabels?.some((label: string) =>
-							lowercaseLabels.includes(label.toLowerCase()),
-						);
-
-			if (matchesLabel) {
-				try {
-					const __filename = fileURLToPath(import.meta.url);
-					const __dirname = dirname(__filename);
-					const promptPath = join(
-						__dirname,
-						"..",
-						"prompts",
-						`${promptType}.md`,
-					);
-					const promptContent = await readFile(promptPath, "utf-8");
-					this.logger.debug(
-						`Using ${promptType} system prompt from repo '${repository.name}' for labels: ${labels.join(", ")}`,
-					);
-
-					const promptVersion = this.extractVersionTag(promptContent);
-					if (promptVersion) {
-						this.logger.debug(
-							`${promptType} system prompt version: ${promptVersion}`,
-						);
-					}
-
-					return {
-						prompt: promptContent,
-						version: promptVersion,
-						type: promptType,
-					};
-				} catch (error) {
-					this.logger.error(
-						`Failed to load ${promptType} prompt template:`,
-						error,
-					);
-					return undefined;
-				}
-			}
-		}
-
-		return undefined;
 	}
 
 	/**

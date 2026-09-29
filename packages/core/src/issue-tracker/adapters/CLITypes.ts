@@ -247,10 +247,14 @@ export interface CLIAgentActivityData {
 
 /**
  * Create a CLI Issue object compatible with our Pick-based Issue type.
+ *
+ * @param workflowState - When set, `state` resolves to this workflow state.
+ *   When omitted, `state` stays undefined.
  */
 export function createCLIIssue(
 	data: CLIIssueData,
 	resolvedLabels?: CLILabelData[],
+	workflowState?: CLIWorkflowStateData,
 ): Issue {
 	// Create a partial object with all the required properties
 	const issue = {
@@ -329,7 +333,18 @@ export function createCLIIssue(
 			return undefined;
 		},
 		get state() {
-			return undefined;
+			if (!workflowState) {
+				return undefined;
+			}
+			// SDK WorkflowState is a class, so only this getter's return is cast.
+			return Promise.resolve({
+				id: workflowState.id,
+				name: workflowState.name,
+				description: workflowState.description,
+				color: workflowState.color,
+				type: workflowState.type,
+				position: workflowState.position,
+			}) as unknown as LinearSDK.LinearFetch<LinearSDK.WorkflowState>;
 		},
 		get parent() {
 			return undefined;

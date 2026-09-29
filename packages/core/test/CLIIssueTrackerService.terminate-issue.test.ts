@@ -43,6 +43,7 @@ describe("CLIIssueTrackerService.terminateIssue", () => {
 		// state moved to state-done
 		const updated = await service.fetchIssue(issue.id);
 		expect(updated.stateId).toBe("state-done");
+		expect((await updated.state)?.type).toBe("completed");
 
 		// message emitted
 		expect(messages).toHaveLength(1);
@@ -50,7 +51,11 @@ describe("CLIIssueTrackerService.terminateIssue", () => {
 		expect(msg.action).toBe("issue_state_change");
 		expect(msg.workItemId).toBe(issue.id);
 		expect(msg.workItemIdentifier).toBe(issue.identifier);
-		expect((msg as { isTerminal: boolean }).isTerminal).toBe(true);
+		if (msg.action !== "issue_state_change") {
+			throw new Error("expected issue_state_change");
+		}
+		expect(msg.isTerminal).toBe(true);
+		expect(msg.trigger).toBe("status_notification");
 	});
 
 	it("moves issue to state-canceled on action 'canceled' and emits message", async () => {
@@ -61,9 +66,15 @@ describe("CLIIssueTrackerService.terminateIssue", () => {
 
 		const updated = await service.fetchIssue(issue.id);
 		expect(updated.stateId).toBe("state-canceled");
+		expect((await updated.state)?.type).toBe("canceled");
 
 		expect(messages).toHaveLength(1);
-		expect(messages[0]!.action).toBe("issue_state_change");
+		const msg = messages[0]!;
+		expect(msg.action).toBe("issue_state_change");
+		if (msg.action !== "issue_state_change") {
+			throw new Error("expected issue_state_change");
+		}
+		expect(msg.trigger).toBe("status_notification");
 	});
 
 	it("removes issue from state on action 'deleted' and emits message", async () => {
@@ -75,7 +86,13 @@ describe("CLIIssueTrackerService.terminateIssue", () => {
 		await expect(service.fetchIssue(issue.id)).rejects.toThrow();
 
 		expect(messages).toHaveLength(1);
-		expect(messages[0]!.workItemIdentifier).toBe(issue.identifier);
+		const msg = messages[0]!;
+		expect(msg.workItemIdentifier).toBe(issue.identifier);
+		expect(msg.action).toBe("issue_state_change");
+		if (msg.action !== "issue_state_change") {
+			throw new Error("expected issue_state_change");
+		}
+		expect(msg.trigger).toBe("deletion");
 	});
 
 	it("throws when the issue does not exist", async () => {

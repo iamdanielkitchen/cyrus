@@ -168,7 +168,13 @@ export class CLIIssueTrackerService
 			.map((id) => this.state.labels.get(id))
 			.filter((l): l is CLILabelData => l !== undefined);
 
-		return createCLIIssue(issueData, resolvedLabels);
+		return createCLIIssue(
+			issueData,
+			resolvedLabels,
+			issueData.stateId
+				? this.state.workflowStates.get(issueData.stateId)
+				: undefined,
+		);
 	}
 
 	/**
@@ -256,7 +262,13 @@ export class CLIIssueTrackerService
 			.filter((l): l is CLILabelData => l !== undefined);
 
 		// Create and return the issue
-		const issue = createCLIIssue(issueData, resolvedLabels);
+		const issue = createCLIIssue(
+			issueData,
+			resolvedLabels,
+			issueData.stateId
+				? this.state.workflowStates.get(issueData.stateId)
+				: undefined,
+		);
 
 		// Emit state change event
 		this.emit("issue:created", { issue });
@@ -298,7 +310,15 @@ export class CLIIssueTrackerService
 				const resolvedLabels = issueData.labelIds
 					.map((id) => this.state.labels.get(id))
 					.filter((l): l is CLILabelData => l !== undefined);
-				allChildren.push(createCLIIssue(issueData, resolvedLabels));
+				allChildren.push(
+					createCLIIssue(
+						issueData,
+						resolvedLabels,
+						issueData.stateId
+							? this.state.workflowStates.get(issueData.stateId)
+							: undefined,
+					),
+				);
 			}
 		}
 
@@ -422,7 +442,13 @@ export class CLIIssueTrackerService
 		const resolvedLabels = issueData.labelIds
 			.map((id) => this.state.labels.get(id))
 			.filter((l): l is CLILabelData => l !== undefined);
-		const issue = createCLIIssue(issueData, resolvedLabels);
+		const issue = createCLIIssue(
+			issueData,
+			resolvedLabels,
+			issueData.stateId
+				? this.state.workflowStates.get(issueData.stateId)
+				: undefined,
+		);
 		this.emit("issue:updated", { issue });
 
 		return issue;
@@ -1190,6 +1216,7 @@ export class CLIIssueTrackerService
 				workItemId: issueId,
 				workItemIdentifier: identifier,
 				isTerminal: true,
+				trigger: action === "deleted" ? "deletion" : "status_notification",
 				platformData,
 			};
 

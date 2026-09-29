@@ -74,6 +74,11 @@ export interface ChatRunnerConfigInput {
 	workspacePath: string;
 	workspaceName: string | undefined;
 	systemPrompt: string;
+	/**
+	 * Append the failure-mode addendum only when strictly true.
+	 * Omitted or false leaves `systemPrompt` unchanged for later addenda.
+	 */
+	failureModeToolEnabled?: boolean;
 	sessionId: string;
 	resumeSessionId?: string;
 	cyrusHome: string;
@@ -126,6 +131,12 @@ export interface IssueRunnerConfigInput {
 	repository: RepositoryConfig;
 	sessionId: string;
 	systemPrompt: string | undefined;
+	/**
+	 * Append the failure-mode addendum only when strictly true.
+	 * Omitted or false leaves `systemPrompt` unchanged, including
+	 * `undefined`, so later addenda still run.
+	 */
+	failureModeToolEnabled?: boolean;
 	allowedTools: string[];
 	allowedDirectories: string[];
 	disallowedTools: string[];
@@ -311,7 +322,10 @@ export class RunnerConfigBuilder {
 			appendSystemPrompt: appendCloudRuntimeAddendum(
 				appendGitHubCliMediaAddendum(
 					appendBrowserUseAddendum(
-						appendFailureModeAddendum(input.systemPrompt),
+						this.applyFailureModeAddendum(
+							input.systemPrompt,
+							input.failureModeToolEnabled,
+						),
 					),
 				),
 			),
@@ -463,7 +477,10 @@ export class RunnerConfigBuilder {
 			appendSystemPrompt: appendCloudRuntimeAddendum(
 				appendGitHubCliMediaAddendum(
 					appendBrowserUseAddendum(
-						appendFailureModeAddendum(input.systemPrompt),
+						this.applyFailureModeAddendum(
+							input.systemPrompt,
+							input.failureModeToolEnabled,
+						),
 					),
 				),
 			),
@@ -559,6 +576,20 @@ export class RunnerConfigBuilder {
 		}
 
 		return { config, runnerType };
+	}
+
+	/**
+	 * Append failure-mode instructions only when `log_failure_mode` is
+	 * registered. Any other value, including omitted, returns the prompt
+	 * unchanged so later addenda still see `undefined` instead of the
+	 * string "undefined".
+	 */
+	private applyFailureModeAddendum(
+		systemPrompt: string | undefined,
+		failureModeToolEnabled: boolean | undefined,
+	): string | undefined {
+		if (failureModeToolEnabled !== true) return systemPrompt;
+		return appendFailureModeAddendum(systemPrompt);
 	}
 
 	/**

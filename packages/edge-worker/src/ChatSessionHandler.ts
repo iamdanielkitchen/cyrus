@@ -111,6 +111,12 @@ export interface ChatSessionHandlerDeps {
 	/** Live read of whether Claude should ignore ambient MCP configuration. */
 	getStrictMcpConfig?: () => boolean | undefined;
 	/**
+	 * Live read of whether `log_failure_mode` is registered. Called when the
+	 * runner config is built, not when the handler is constructed. Omitted
+	 * is treated as disabled.
+	 */
+	isFailureModeToolEnabled?: () => boolean;
+	/**
 	 * Refresh the workspace's Linear access token if it has expired. Called
 	 * before each runner config is built, because the Linear MCP server
 	 * receives the token as a fixed header and cannot refresh it itself.
@@ -791,6 +797,7 @@ export class ChatSessionHandler<TEvent> {
 			workspacePath,
 			workspaceName,
 			systemPrompt,
+			failureModeToolEnabled: this.deps.isFailureModeToolEnabled?.() ?? false,
 			sessionId,
 			resumeSessionId,
 			runnerType,

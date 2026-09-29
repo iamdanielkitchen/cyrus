@@ -820,9 +820,9 @@ export type IssueUpdateWebhook =
  * Platform-agnostic issue state change webhook payload.
  * Maps to Linear SDK's AppUserNotificationWebhookPayload with action "issueStatusChanged".
  *
- * Linear sends this as an AppUserNotification when an issue transitions to a
- * terminal state (completed or canceled). The notification contains the issue
- * data via `notification.issue`.
+ * Linear sends this AppUserNotification when an issue's status changes.
+ * The notification does not include the new workflow state and does not mean
+ * the issue is terminal. Issue data is available via `notification.issue`.
  */
 export type IssueStateChangeWebhook =
 	LinearSDK.LinearDocument.AppUserNotificationWebhookPayload;
@@ -869,6 +869,15 @@ export function isIssueAssignedWebhook(
 	return (
 		webhook.type === "AppUserNotification" &&
 		webhook.action === "issueAssignedToYou"
+	);
+}
+
+export function isIssueSubscribedWebhook(
+	webhook: Webhook,
+): webhook is LinearSDK.LinearDocument.AppUserNotificationWebhookPayload {
+	return (
+		webhook.type === "AppUserNotification" &&
+		webhook.action === "issueSubscribed"
 	);
 }
 
@@ -974,8 +983,9 @@ export function isIssueStateIdUpdateWebhook(
 /**
  * Type guard to check if webhook is an issue status change notification.
  *
- * Linear sends AppUserNotification webhooks with action "issueStatusChanged"
- * when an issue transitions to a terminal state (completed or canceled).
+ * Matches AppUserNotification webhooks with action "issueStatusChanged".
+ * The payload does not include the new state and is not proof of a terminal
+ * transition (completed or canceled).
  */
 export function isIssueStateChangeWebhook(
 	webhook: Webhook,

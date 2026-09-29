@@ -27,6 +27,7 @@ import {
 	type IAgentRunner,
 	type ILogger,
 	LogLevel,
+	omitCyrusDocsAllowedTool,
 	StreamingPrompt,
 } from "cyrus-core";
 import dotenv from "dotenv";
@@ -544,6 +545,10 @@ export class ClaudeRunner extends EventEmitter implements IAgentRunner {
 					: directoryTools;
 			}
 
+			if (processedAllowedTools !== undefined) {
+				processedAllowedTools = omitCyrusDocsAllowedTool(processedAllowedTools);
+			}
+
 			// Build home directory restrictions: deny Read on everything in ~/
 			// that is not an ancestor of the working directory. This prevents
 			// Claude from reading SSH keys, credentials, etc. `Read(~/**)` does
@@ -638,13 +643,9 @@ export class ClaudeRunner extends EventEmitter implements IAgentRunner {
 
 			const pathToClaudeCodeExecutable = this.config.pathToClaudeCodeExecutable;
 
-			// On Linux, setting CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 causes the SDK
-			// to run tool invocations under a bubblewrap-backed sandbox. If the
-			// host lacks `socat`, `bubblewrap`, or the kernel/AppArmor config
-			// needed to create an unprivileged user namespace, the sandbox will
-			// fail at runtime. Check those requirements up front so we can fall
-			// back to unscrubbed env (and log resolution guidance to stdout)
-			// instead of failing opaquely mid-session.
+			// The Linux sandbox requirements precheck is diagnostic only. The
+			// scrub flag stays unset because of CYPACK-1108 whether or not the
+			// check passes.
 			const sandboxRequirements = checkLinuxSandboxRequirements();
 			logSandboxRequirementFailures(sandboxRequirements, this.logger);
 

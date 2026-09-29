@@ -229,3 +229,47 @@ export function getDefaultAllowedTools(
 			return GITHUB_DEFAULT_ALLOWED_TOOLS;
 	}
 }
+
+type CyrusDocsMcpEnv = {
+	CYRUS_DISABLE_DOCS_MCP?: unknown;
+};
+
+const CYRUS_DOCS_MCP_TOOL = "mcp__cyrus-docs";
+const CYRUS_DOCS_MCP_TOOL_PREFIX = `${CYRUS_DOCS_MCP_TOOL}__`;
+const CYRUS_DOCS_MCP_DISABLED_VALUES = new Set(["1", "true", "yes"]);
+
+/**
+ * True only when `CYRUS_DISABLE_DOCS_MCP`, after trim and lowercasing, is
+ * "1", "true", or "yes". Non-strings and every other value, including
+ * unset, keep cyrus-docs registered. Does not mutate `env`.
+ */
+export function isCyrusDocsMcpDisabled(
+	env: CyrusDocsMcpEnv = process.env,
+): boolean {
+	const raw = env.CYRUS_DISABLE_DOCS_MCP;
+	if (typeof raw !== "string") {
+		return false;
+	}
+	return CYRUS_DOCS_MCP_DISABLED_VALUES.has(raw.trim().toLowerCase());
+}
+
+function isCyrusDocsAllowedToolEntry(tool: string): boolean {
+	return (
+		tool === CYRUS_DOCS_MCP_TOOL || tool.startsWith(CYRUS_DOCS_MCP_TOOL_PREFIX)
+	);
+}
+
+/**
+ * Returns a new array. When cyrus-docs is disabled, drops the exact
+ * `mcp__cyrus-docs` entry and names that start with `mcp__cyrus-docs__`.
+ * Otherwise returns a shallow copy of every entry. Does not mutate `tools`.
+ */
+export function omitCyrusDocsAllowedTool(
+	tools: readonly string[],
+	env: CyrusDocsMcpEnv = process.env,
+): string[] {
+	if (!isCyrusDocsMcpDisabled(env)) {
+		return tools.slice();
+	}
+	return tools.filter((tool) => !isCyrusDocsAllowedToolEntry(tool));
+}
